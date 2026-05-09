@@ -1,0 +1,132 @@
+﻿module rotary_encoder (
+    input wire clk,
+    input wire reset,
+    input wire encoder_clk,
+    input wire encoder_dt,
+    input wire encoder_sw,
+    output reg [4:0] volume,
+    output reg mute,
+    output wire clk_raw,
+    output wire dt_raw
+);
+
+
+assign clk_raw = encoder_clk;
+assign dt_raw = encoder_dt;
+
+
+// Three stage synchronizers in explicit style
+reg clk_sync_0;
+reg clk_sync_1;
+reg clk_sync_2;
+
+
+reg dt_sync_0;
+reg dt_sync_1;
+reg dt_sync_2;
+
+
+// Debounce logic
+reg [11:0] clk_debounce_count;
+reg [11:0] dt_debounce_count;
+
+
+reg clk_stable;
+reg dt_stable;
+
+
+reg clk_prev;
+reg dt_prev;
+
+
+wire clk_rising_edge = (clk_stable && !clk_prev);
+
+
+// CLK synchronizer
+always @(posedge clk or posedge reset) begin
+    if (reset) begin
+        clk_sync_0 <= 1'b0;
+        clk_sync_1 <= 1'b0;
+        clk_sync_2 <= 1'b0;
+    end else begin
+        clk_sync_0 <= encoder_clk;
+        clk_sync_1 <= clk_sync_0;
+        clk_sync_2 <= clk_sync_1;
+    end
+end
+
+
+// DT synchronizer
+always @(posedge clk or posedge reset) begin
+    if (reset) begin
+        dt_sync_0 <= 1'b0;
+        dt_sync_1 <= 1'b0;
+        dt_sync_2 <= 1'b0;
+    end else begin
+        dt_sync_0 <= encoder_dt;
+        dt_sync_1 <= dt_sync_0;
+        dt_sync_2 <= dt_sync_1;
+    end
+end
+
+
+// Debounce for CLK
+always @(posedge clk) begin
+    if (reset) begin
+        clk_stable <= 1'b1;
+        clk_debounce_count <= 12'd0;
+    end else begin
+        if (clk_sync_2 == clk_stable)
+            clk_debounce_count <= 12'd0;
+        else if (clk_debounce_count == 12'd4095) begin
+            clk_stable <= clk_sync_2;
+            clk_debounce_count <= 12'd0;
+        end else
+            clk_debounce_count <= clk_debounce_count + 1'b1;
+    end
+end
+
+
+// Debounce for DT
+always @(posedge clk) begin
+    if (reset) begin
+        dt_stable <= 1'b1;
+        dt_debounce_count <= 12'd0;
+    end else begin
+        if (dt_sync_2 == dt_stable)
+            dt_debounce_count <= 12'd0;
+        else if (dt_debounce_count == 12'd4095) begin
+            dt_stable <= dt_sync_2;
+            dt_debounce_count <= 12'd0;
+        end else
+            dt_debounce_count <= dt_debounce_count + 1'b1;
+    end
+end
+
+
+// Volume control
+always @(posedge clk) begin
+    if (reset) begin
+        volume <= 5'd10;
+        clk_prev <= 1'b1;
+        dt_prev <= 1'b1;
+        mute <= 1'b0;
+    end else begin
+        clk_prev <= clk_stable;
+        dt_prev <= dt_stable;
+
+
+        if (clk_rising_edge) begin
+            if (dt_stable == 1'b0) begin
+                if (volume < 5'd31)
+                    volume <= volume + 1'b1;
+            end else begin
+                if (volume > 5'd0)
+                    volume <= volume - 1'b1;
+            end
+        end
+    end
+end
+
+
+endmodule
